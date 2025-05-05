@@ -1,0 +1,8 @@
+casename, u_in, num_side, l_tot, comment
+base_18.4k_phi_0.6, 1.3125, 6, 29.3277, before transition to pentagon
+base_18.4k_phi_0.6, 1.75, 5, 36.952, before onset of limit cycle
+base_18.4k_phi_0.6, 2.0625, 6, 42.3739, before onset of instability
+base_18.4k_phi_0.6, 2.125, 6, 43.5438, before onset of instability
+base_18.4k_phi_0.6, 2.40, 7, 48.2782, before onset of instability
+base_18.4k_phi_0.6, 2.50, 7, 50.1668, before onset of instability
+base_18.4k_phi_0.6, 2.75, 8, 54.4422, before onset of instability
