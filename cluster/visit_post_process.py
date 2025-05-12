@@ -210,7 +210,7 @@ if 'h' in enabled_modes:
         for line in data[1:]:  # Skip first matching line
             fields = line.strip().split()
             if len(fields) >= 6:
-                timeseries.append([fields[5], fields[4]])  # 6th and 5th fields (reversed)
+                timeseries.append([fields[5] + t_offset, fields[4]])  # 6th and 5th fields (reversed)
 
         # Convert to DataFrame and write to CSV
         print("[INFO] Saving .csv")
