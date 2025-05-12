@@ -1,6 +1,2 @@
 case, velocity, run_number, startfrom, t_end, write_interval, no_cores, extra_args
-le1_18.4k_phi_0.6, 01.75, 01, circ_5.25, 50, 0.5, 256, -
-le1_18.4k_phi_0.6, 02.00, 01, circ_6.00, 50, 0.5, 256, -
-le1_18.4k_phi_0.6, 02.25, 01, circ_6.75, 50, 0.5, 256, -
-le1_18.4k_phi_0.6, 02.50, 01, circ_7.50, 50, 0.5, 256, -
-le1_18.4k_phi_0.6, 02.75, 01, circ_8.25, 50, 0.5, 256, -
+le1_18.4k_phi_0.75, 02.00, 03, 02.00_01, 200, 0.5, 256, -

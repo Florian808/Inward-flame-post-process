@@ -36,7 +36,7 @@ Tiso = 5              # Temperature used for isocountour
 # Start parallel compute engine
 if not test_mode:
     n_proc = 1
-    t_lim = int(len(args.sources) * 2) + 10
+    t_lim = 300 #int(len(args.sources) * 10) + 30
     engine_args = ("-l", "srun", "-la", "--mem-per-cpu=4096", "-np", str(n_proc), "-t", str(t_lim),"-hosts", "localhost")
     OpenComputeEngine("localhost", engine_args)
 SuppressMessages(3)
