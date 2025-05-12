@@ -4,6 +4,7 @@ import subprocess
 import pandas as pd
 import shutil
 import re
+import glob
 
 def parse_case(case_str):
     try:
@@ -21,7 +22,7 @@ parser.add_argument("--path", type=str, required=False,
 parser.add_argument("--case", type=str, required=False,
                     help="case name value to use for all cases (e.g. base_18.4k_phi_0.6)")
 parser.add_argument("--mode", type=str, required=False,
-                    help="Mode to run postprocessing (d dryrun; c contour; i images)")
+                    help="Mode to run postprocessing (d dryrun; c contour; i images; h heat release)")
 parser.add_argument('--all', action='store_true', help='Go through all casefiles on the scratch folder')
 parser.add_argument('--new', action='store_true', help='Go through new casefiles on the scratch folder')
 args = parser.parse_args()
@@ -50,11 +51,13 @@ if args.path:
     os.makedirs(dest, exist_ok=True)
     os.makedirs(f"{dest}/database", exist_ok=True)
     os.makedirs(f"{dest}/images", exist_ok=True)
+
 elif args.all or args.new:
     case_pattern = re.compile(r'^[^_]+_[^_]+_[^_]+_[^_]+$')
     vel_pattern  = re.compile(r'^Uin_[0-9]+.[0-9]+$')
     run_pattern  = re.compile(r'^RUN[0-9]+$')
-
+    
+    # Go through all case directories, then velocity directories, then runs directories
     for case_dir in os.listdir("/cluster/scratch/fkaufmann/"):
         case_full_dir = f"/cluster/scratch/fkaufmann/{case_dir}"
         if os.path.isdir(case_full_dir) and case_pattern.match(case_dir):
@@ -165,7 +168,7 @@ if 'v' in enabled_modes:
     # Prepare ffmpeg command
     frame_rate = 15
     # Create Video name and path
-    output_video = f"Vid_Uin_{args.runss[0][0].replace('.', '')}_RUN"
+    output_video = f"Vid_Uin_{args.runs[0][0].replace('.', '')}_RUN"
     for run in args.runs:
         output_video += "_" + run[1]
     output_video += ".mp4"
@@ -183,3 +186,35 @@ if 'v' in enabled_modes:
     print("[INFO] Running FFmpeg...")
     subprocess.run(ffmpeg_cmd)
     print(f"Video saved to {video_path}")
+
+# Write csv with iHRR
+if 'h' in enabled_modes:
+    for source, destination, t_offset in zip(sources, destinations, time_offsets):
+        source_parent = os.path.dirname(source)
+        hrr_sources  = glob.glob(f"{source_parent}/slurm*")
+        if len(hrr_sources) > 1:
+            print(f"[WARNING] several slurm.out files found in {source_parent}, picking first one")
+        hrr_source = hrr_sources[0]
+        hrr_destination = f"{destination}/iHRR.csv"
+        data = []
+        try:
+            with open(hrr_source, 'r') as f:
+                for line in f:
+                    if 'hrr' in line:
+                        data.append(line)
+        except Exception as e:
+            print(f"Error reading {hrr_source}: {e}")
+        
+        timeseries = []
+        # Write to CSV (skip the first match)
+        for line in data[1:]:  # Skip first matching line
+            fields = line.strip().split()
+            if len(fields) >= 6:
+                timeseries.append([fields[5], fields[4]])  # 6th and 5th fields (reversed)
+
+        # Convert to DataFrame and write to CSV
+        print("[INFO] Saving .csv")
+        df = pd.DataFrame(timeseries, columns=["time", "ihrr"])  
+        df.to_csv(hrr_destination, index=False)
+            
+
