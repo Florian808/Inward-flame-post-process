@@ -31,7 +31,7 @@ if len(args.sources) != len(args.destinations):
 # Internal plotting params
 test_mode = False       # Enable testing mode for the script
 only_final = False       # Only export the isocontour at the final time
-Tiso = 5              # Temperature used for isocountour
+Tiso = 3              # Temperature used for isocountour
 
 # Start parallel compute engine
 if not test_mode:
@@ -106,7 +106,7 @@ for path, dest in zip(args.sources, args.destinations):
         f.write(f'{t:.2f}, {vel_mag_avg}, {length}\n')
 
         # Export database at that timestep
-        dB.filename = f'Isotherm_t_{t:.2f}'
+        dB.filename = f'Isotherm_T_{Tiso}_t_{t:.2f}'
         print('[VISIT] Exporting ', dB.filename)
         ExportDatabase(dB)
     
