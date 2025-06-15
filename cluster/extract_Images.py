@@ -21,7 +21,8 @@ SuppressMessages(3)
 scalar = "s6"       # OH
 res_x = 1920        # Resolution width  
 res_y = 1080        # Resolution height
-fullscreen = False  # Render image in fullscreen 
+fullscreen = False  # Render image in fullscreen
+Tiso = 5            # Isotherm temp for spatial extend 
 
 # Process the single pair of source and destination
 dest = args.destinations
@@ -31,10 +32,35 @@ path = args.sources
 db_path = path
 OpenDatabase(db_path, 0)
 
+
+# Plot image of final Isotherm
+# Add temperature contour (single color as opposed to slicing)
+AddPlot("Contour", "temperature", 0, 0)
+ResizeWindow(1, res_x, res_y)
+SetTimeSliderState(TimeSliderGetNStates() - 1)
+# Set up contour attributes
+ContourAtts = ContourAttributes()
+ContourAtts.colorType = ContourAtts.ColorBySingleColor  # ColorBySingleColor, ColorByMultipleColors, ColorByColorTable
+ContourAtts.legendFlag = 0
+ContourAtts.wireframe = 0
+ContourAtts.lineWidth = 3
+ContourAtts.singleColor = (255, 0, 0, 255)
+ContourAtts.contourMethod = ContourAtts.Value  # Level, Value, Percent
+ContourAtts.contourValue = (Tiso)
+ContourAtts.scaling = ContourAtts.Linear  # Linear, Log
+SetPlotOptions(ContourAtts)
+DrawPlots()
+
+# Set up layout
+Query("SpatialExtents", use_actual_data=1)
+max_coord = max([abs(GetQueryOutputValue()[i]) for i in range(4)])
+l_plot = round((max_coord + 15) / 5) * 5 + 0.001
+print(l_plot)
+DeleteAllPlots()
 # Add plot for specified scalar
 
 AddPlot("Pseudocolor", scalar, 0, 0)
-ResizeWindow(1, res_x, res_y)
+
 
 # Define the Attributes for plotting
 PseudocolorAtts = PseudocolorAttributes()
@@ -62,7 +88,6 @@ if fullscreen:
 else:
     layout = "std"
     # Set up layout
-    l_plot = 20.001
     x_lim_cent = 0.5
     View2DAtts = View2DAttributes()
     View2DAtts.windowCoords = (-l_plot, l_plot, -l_plot, l_plot)

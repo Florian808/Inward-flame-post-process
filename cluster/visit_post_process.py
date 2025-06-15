@@ -6,6 +6,9 @@ import shutil
 import re
 import glob
 
+# Runtime params
+delete_vid_img = True
+
 def parse_case(case_str):
     try:
         velocity, run = case_str.split("_")
@@ -106,7 +109,7 @@ else:
 
 
  
-# Choose scripts to execute
+# Run in dry mode
 if 'd' in enabled_modes:
     print(f'[INFO] Testing mode, running the following command:')
     cmd = ["visit", "-cli", "-nowin", "-s", "extract_Iso_avgs.py", "--destinations"] + destinations + ["--sources"] + sources
@@ -156,6 +159,7 @@ if 'v' in enabled_modes:
     print("[INFO] creating temporary symbolic links")
     k = 0
     for i, destination in enumerate(destinations):
+        # Read csv containing the image names
         df = pd.read_csv(f"{destination}/images_{mode}.csv", skipinitialspace=True)
         for j in range(dt_fac[i]-1, len(df), dt_fac[i]):
             dst = f"{vid_path}/temp/frame{k:05d}.png"
@@ -166,7 +170,7 @@ if 'v' in enabled_modes:
             k += 1
 
     # Prepare ffmpeg command
-    frame_rate = 15
+    frame_rate = int(15 / float(dt_max)) / 2 
     # Create Video name and path
     output_video = f"Vid_Uin_{args.runs[0][0].replace('.', '')}_RUN"
     for run in args.runs:
@@ -177,15 +181,20 @@ if 'v' in enabled_modes:
     "ffmpeg",
     "-y",
     "-framerate", str(frame_rate),
-    "-i", vid_path + "/temp/frame%05d.png", 
+    "-i", str(vid_path) + "/temp/frame%05d.png", 
     "-c:v", "libx264",
     "-pix_fmt", "yuv420p",
     video_path
     ]
-    print(ffmpeg_cmd)
+    # print(ffmpeg_cmd)
     print("[INFO] Running FFmpeg...")
     subprocess.run(ffmpeg_cmd)
-    print(f"Video saved to {video_path}")
+    print(f"[INFO] Video saved to {video_path}")
+    # delete images to save space
+    if delete_vid_img:
+        print("[INFO] Deleting images used for video")
+        for destination in destinations:
+            shutil.rmtree(f"{destination}/images/")
 
 # Write csv with iHRR
 if 'h' in enabled_modes:
