@@ -83,7 +83,7 @@ for path, dest in zip(args.sources, args.destinations):
     dB.dirname = f"{dest}/database"
 
     # Prepare time series CSV output file
-    f = open(f'{dest}/timeseries_meanvel_len.csv', 'w', encoding='utf-8')
+    f = open(f'{dest}/timeseries_T_{Tiso}_meanvel_len.csv', 'w', encoding='utf-8')
     f.write('time, v_mag_mean, total_length\n')
 
     # Do time query

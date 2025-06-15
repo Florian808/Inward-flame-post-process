@@ -1,2 +1,5 @@
 case, velocity, run_number, startfrom, t_end, write_interval, no_cores, extra_args
-base_18.4k_phi_0.6, 02.00, 07, 02.00_02, 200, 0.5, 256, -
+small_19.7k_phi_0.6, 03.00, 02, PC_7.3575_1.0e-06_2_16, 50, 0.5, 256, -
+small_19.7k_phi_0.6, 03.75, 02, PC_8.175_1.0e-06_2_17, 50, 0.5, 256, -
+small_19.7k_phi_0.6, 04.50, 03, PC_8.9975_1.0e-06_2_19, 50, 0.5, 256, -
+small_19.7k_phi_0.6, 05.25, 02, PC_9.81_1.0e-06_2_21, 50, 0.5, 256, -
