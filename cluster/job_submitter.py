@@ -1,3 +1,18 @@
+"""
+Script to automatically create working directories, copy relevant casefiles and modify the .par file, using a .csv list of jobs
+Finally it will submit a batch job to the Euler cluster
+Inputs:
+    -- path: mandatory path to the .csv file specifying jobs
+    -- override: boolean, if set to True will override working directory if it already exists, USE WITH CARE as it can override existing simulation files
+For example .csv file look at "Job_list_for_sub.csv"
+
+Parameters:
+    - test_mode     boolean, specifies if script should actually submit batch Job to cluster
+    - dt            float, default timestep, script issues warning if value different from this is used
+    - l_time_lim    int, specifies the number of hours allocated to batch job if l flag is set in "extra_args"
+"""
+
+
 import argparse
 import pandas as pd
 import os
@@ -8,7 +23,7 @@ import subprocess
 
 # Some General Parameters
 test_mode = False
-dt = 5.0e-04
+dt = 1.0e-03
 l_time_lim = 72
 
 
@@ -21,7 +36,7 @@ def get_restart_params(start, u_in, case, df):
     if not out_files:
         print("[INFO] Restart case has not run yet, looking in this Joblist...")
         for j in range(len(df)):
-            if df.iloc[j,0] == case and df.iloc[j,1] == res_u_in and df.iloc[j,2] == res_run_num:
+            if df['case'].iloc[j] == case and df['velocity'].iloc[j] == res_u_in and df['run_number'].iloc[j] == res_run_num:
                 print("[INFO] Found restart in Joblist, job needs to be appended")
                 res_time = df.iloc[j, 4]
                 res_dir = f"{res_case_dir}/{final_checkpoints[j]}"
@@ -71,22 +86,26 @@ final_checkpoints = [None] * len(df)
 
 for i in range(len(df)):
     # Read case params from csv
-    case = df.iloc[i,0]
-    u_in = df.iloc[i,1]
-    run_num = df.iloc[i,2]
-    if df.iloc[i,3]== "None" or df.iloc[i,3] == "":
+    case = df['case'].iloc[i]
+    u_in = df['velocity'].iloc[i]
+    run_num = df['run_number'].iloc[i]
+    start_from = df['startfrom'].iloc[i]
+    if start_from == "None" or start_from == "":
         IC = "None"
         re_start = "None"
-    elif "circ" in df.iloc[i,3]:
-        IC, start_r = df.iloc[i,3].split("_")
+    elif "circ" in start_from:
+        IC, start_r = start_from.split("_")
+        re_start = "None"
+    elif "PC" in start_from:
+        IC, start_r, amp_pert, m_start_pert, m_end_pert = start_from.split("_")
         re_start = "None"
     else:
         IC = "None"
-        re_start = df.iloc[i,3]
-    t_end = df.iloc[i,4]
-    t_write = df.iloc[i,5]
-    n_cores = df.iloc[i,6]
-    args = df.iloc[i,7]
+        re_start = start_from
+    t_end = df['t_end'].iloc[i]
+    t_write = df['write_interval'].iloc[i]
+    n_cores = df['no_cores'].iloc[i]
+    args = df['extra_args'].iloc[i]
 
     # create directories
     case_dir = f"/cluster/scratch/fkaufmann/{case}/Uin_{u_in}"
@@ -151,15 +170,15 @@ for i in range(len(df)):
         if "writeInterval" in line:
             line = f"writeInterval = {t_write}\n"
 
-        # Update initia radius 
-        if "userParam01" in line and IC == "circ":
+        # Update initial radius 
+        if "userParam01" in line and (IC == "circ" or IC =="PC"):
             match = re.match(r"(userParam01\s*=\s*)(\d+\.\d+)(\s*!.*)?", line)
             if match:
                 prefix, old_val, comment = match.groups()
                 new_val = start_r  
                 comment = comment or ""
                 line = f"{prefix}{new_val}{comment}\n"
-                print(f"[INFO] IC is circle with r={start_r}")
+                print(f"[INFO] IC is circle with r = {start_r}")
 
         # Update userParam02 value but keep the inline comment
         if "userParam02" in line:
@@ -169,6 +188,44 @@ for i in range(len(df)):
                 new_val = u_in  
                 comment = comment or ""
                 line = f"{prefix}{new_val}{comment}\n"
+
+        # Update perturbation amplitude value but keep the inline comment
+        if "userParam04" in line:
+            match = re.match(r"(userParam04\s*=\s*)([\d.+-eE]+)(\s*!.*)?", line)
+            if match:
+                prefix, old_val, comment = match.groups()
+                if IC == "PC":
+                    new_val = amp_pert
+                else:
+                    new_val = 0.0
+                comment = comment or ""
+                line = f"{prefix}{new_val}{comment}\n"
+        
+        # Update starting mode for polychromatic perturbation but keep the inline comment
+        if "userParam05" in line:
+            match = re.match(r"(userParam05\s*=\s*)(\d+)(\s*!.*)?", line)
+            if match:
+                prefix, old_val, comment = match.groups()
+                if IC == "PC":
+                    new_val = int(m_start_pert)
+                else:
+                    new_val = 1
+                comment = comment or ""
+                line = f"{prefix}{new_val}{comment}\n"
+        
+        # Update ending mode for polychromatic perturbation but keep the inline comment
+        if "userParam06" in line:
+            match = re.match(r"(userParam06\s*=\s*)(\d+)(\s*!.*)?", line)
+            if match:
+                prefix, old_val, comment = match.groups()
+                if IC == "PC":
+                    new_val = int(m_end_pert)
+                    print(f"[INFO] IC is perturbed: A = {amp_pert}; ns = {int(m_start_pert)}; ne = {int(m_end_pert)}")
+                else:
+                    new_val = 1
+                comment = comment or ""
+                line = f"{prefix}{new_val}{comment}\n"
+                
         
         new_lines.append(line)
     with open(f"{dst_dir}/inward.par", "w") as file:
@@ -190,7 +247,7 @@ for i in range(len(df)):
         with open(f"{dst_dir}/launch.sh", "w") as g:
             g.writelines(new_lines)
 
-    cmd = ["sbatch", "-J", f"Uin{u_in.replace(".","")}{int(run_num)}", "launch.sh"]
+    cmd = ["sbatch", "-J", f"Uin{u_in.replace('.','')}{int(run_num)}", "launch.sh"]
     work_dir = dst_dir
     
     if not test_mode:
