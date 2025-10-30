@@ -1,6 +1,9 @@
 """
 Script to automatically create working directories, copy relevant casefiles and modify the .par file, using a .csv list of jobs
-Finally it will submit a batch job to the Euler cluster
+Finally it will submit a batch job to the Euler cluster.
+
+ATTENTION: This script assumes that NO JOBS ARE RUNNING on the cluster. Problems occur if jobs require checkpoints from currently running jobs.
+
 Inputs:
     -- path: mandatory path to the .csv file specifying jobs
     -- override: boolean, if set to True will override working directory if it already exists, USE WITH CARE as it can override existing simulation files
@@ -26,15 +29,24 @@ test_mode = False
 dt = 2.0e-04
 l_time_lim = 72
 
+# Files source and destination settings
+euler_usrname = 'fkaufmann'
+dst_top_dir = f"/cluster/scratch/{euler_usrname}"                       # Destination where case and subsequent folders containing runs and checkpoints should be saved; usually on scratch
+src_top_dir = f"/cluster/home/{euler_usrname}/inward_prop/casefiles"     # Source directory where compiled folders for different cases are located
 
+# Function to find the necessary parameters to restart a job from another checkpoint
+# Assumes that no Jobs are currently running
+# Returns checkpoint location, restart time and if job needs to be chained (-1 = no)
 def get_restart_params(start, u_in, case, df):
     # Getting restart parameters
     print(f"[INFO] Looking for restart files")
     res_u_in, res_run_num = start.split("_")
-    res_case_dir = f"/cluster/scratch/fkaufmann/{case}/Uin_{res_u_in}/RUN{res_run_num}"
+    res_case_dir = f"{dst_top_dir}/{case}/Uin_{res_u_in}/RUN{res_run_num}"
+    # Look for slurm output files
     out_files = glob.glob(f"{res_case_dir}/slurm-*.out")
+    # Case 1: the job required for this simulation has not run yet, so 
     if not out_files:
-        print("[INFO] Restart case has not run yet, looking in this Joblist...")
+        print("[INFO] No output file found, looking in this Joblist...")
         for j in range(len(df)):
             if df['case'].iloc[j] == case and df['velocity'].iloc[j] == res_u_in and df['run_number'].iloc[j] == res_run_num:
                 print("[INFO] Found restart in Joblist, job needs to be appended")
@@ -42,10 +54,11 @@ def get_restart_params(start, u_in, case, df):
                 res_dir = f"{res_case_dir}/{final_checkpoints[j]}"
                 if u_in != res_u_in:
                     res_time = "0.0"
-                return res_dir, res_time
-    # Parsing start time from output file
+                return res_dir, res_time, j
+        raise Exception("No matching slurm output file or entry in this joblist found. Job restart checkpoint cannot be defined")
+    # Case 2: output file has been found. Parse restart time and checkpoint location from .out file
     else:
-        # Searching for .out file
+        # Check if .out file is unique
         if len(out_files) > 1:
             print("[WARNING] multiple slurm output files detected, choosing most recent file")
             latest_file = max(out_files, key=os.path.getmtime)
@@ -65,7 +78,7 @@ def get_restart_params(start, u_in, case, df):
                 if u_in != res_u_in:
                     res_time = "0.0"
                 print(f"[INFO] Using restart file : {file_matches[-1]} at time:{res_time}")
-                return f"{res_case_dir}/{file_matches[-1]}", res_time
+                return f"{res_case_dir}/{file_matches[-1]}", res_time, -1
             else:
                 raise Exception("Restart file not found")
         else: 
@@ -83,8 +96,10 @@ dst_override = args.override
 
 df = pd.read_csv(csv_path, dtype=str, skipinitialspace=True)
 final_checkpoints = [None] * len(df)
+job_ids = [None] * len(df)
 
 for i in range(len(df)):
+    print(f"[INFO] Working on entry {i}")
     # Read case params from csv
     case = df['case'].iloc[i]
     u_in = df['velocity'].iloc[i]
@@ -108,12 +123,12 @@ for i in range(len(df)):
     args = df['extra_args'].iloc[i]
 
     # create directories
-    case_dir = f"/cluster/scratch/fkaufmann/{case}/Uin_{u_in}"
+    case_dir = f"{dst_top_dir}/{case}/Uin_{u_in}"
     print("[INFO] Creating directories...")
     os.makedirs(case_dir, exist_ok=True)
     
     # copy casefiles to scratch
-    src_dir = f"/cluster/home/fkaufmann/inward_prop/casefiles/{case}"
+    src_dir = f"{src_top_dir}/{case}"
     dst_dir = f"{case_dir}/RUN{run_num}"
     if os.path.exists(dst_dir):
         if dst_override:
@@ -133,20 +148,22 @@ for i in range(len(df)):
         lines = file.readlines()
     
     new_lines = []
+    job_dep_idx = -1
+
     for line in lines:
         stripped = line.strip()
 
-        # Replace the startFrom line (commented or not)
+        # Replace the startFrom line
         if stripped.startswith("#startFrom") or stripped.startswith("startFrom"):
             if re_start == "None":
                 print("[INFO] Not using restart files")
                 line = "#startFrom = <path>/inward0.f00200 time=0.0\n"
                 start_time = 0.0
             else:
-                start_path, start_time = get_restart_params(re_start, u_in, case, df)
+                start_path, start_time, job_dep_idx = get_restart_params(re_start, u_in, case, df)
                 line = f"startFrom = {start_path} time={float(start_time):.4f}\n"
          
-        # Update number of steps
+        # Update number of simulation steps
         if "numSteps" in line:
             match = re.match(r"(numSteps\s*=\s*)(\d+)", line)
             if match:
@@ -170,7 +187,7 @@ for i in range(len(df)):
         if "writeInterval" in line:
             line = f"writeInterval = {t_write}\n"
 
-        # Update initial radius 
+        # Update initial radius (userParam01) value but keep the inline comment
         if "userParam01" in line and (IC == "circ" or IC =="PC"):
             match = re.match(r"(userParam01\s*=\s*)(\d+\.\d+)(\s*!.*)?", line)
             if match:
@@ -180,7 +197,7 @@ for i in range(len(df)):
                 line = f"{prefix}{new_val}{comment}\n"
                 print(f"[INFO] IC is circle with r = {start_r}")
 
-        # Update userParam02 value but keep the inline comment
+        # Update inlet velocity (userParam02) value but keep the inline comment
         if "userParam02" in line:
             match = re.match(r"(userParam02\s*=\s*)(\d+\.\d+)(\s*!.*)?", line)
             if match:
@@ -189,7 +206,7 @@ for i in range(len(df)):
                 comment = comment or ""
                 line = f"{prefix}{new_val}{comment}\n"
 
-        # Update perturbation amplitude value but keep the inline comment
+        # Update perturbation amplitude (userParam04) value but keep the inline comment
         if "userParam04" in line:
             match = re.match(r"(userParam04\s*=\s*)([\d.+-eE]+)(\s*!.*)?", line)
             if match:
@@ -201,7 +218,7 @@ for i in range(len(df)):
                 comment = comment or ""
                 line = f"{prefix}{new_val}{comment}\n"
         
-        # Update starting mode for polychromatic perturbation but keep the inline comment
+        # Update starting mode for polychromatic perturbation (userParam05) but keep the inline comment
         if "userParam05" in line:
             match = re.match(r"(userParam05\s*=\s*)(\d+)(\s*!.*)?", line)
             if match:
@@ -213,7 +230,7 @@ for i in range(len(df)):
                 comment = comment or ""
                 line = f"{prefix}{new_val}{comment}\n"
         
-        # Update ending mode for polychromatic perturbation but keep the inline comment
+        # Update final mode for polychromatic perturbation (userParam06) but keep the inline comment
         if "userParam06" in line:
             match = re.match(r"(userParam06\s*=\s*)(\d+)(\s*!.*)?", line)
             if match:
@@ -228,15 +245,19 @@ for i in range(len(df)):
                 
         
         new_lines.append(line)
+    # Write new .par file with updated parameters
     with open(f"{dst_dir}/inward.par", "w") as file:
         file.writelines(new_lines)
-    
     print("[INFO] Writing .par file done")
+
+    # Check if default no. of compute cores are used
     if int(n_cores) != 256:
         # TODO rewrite SIZE and recompilation
         # May not be necessary as case maybe already compiled with higher core count
         # If implemented add check to prevent unnecessary recompiles
         print(f"[INFO] Using more than 256 cores (n = {n_cores})")
+
+    # Change launch.sh file if Job should run for an extended time (>24h) defined at beginning of this script
     if "l" in args:
         with open(f"{dst_dir}/launch.sh", "r") as g:
             new_lines = []
@@ -247,14 +268,30 @@ for i in range(len(df)):
         with open(f"{dst_dir}/launch.sh", "w") as g:
             g.writelines(new_lines)
 
-    cmd = ["sbatch", "-J", f"Uin{u_in.replace('.','')}{int(run_num)}", "launch.sh"]
+    # Prepare command for batch job submission on the cluster
+    if job_dep_idx < 0:
+        cmd = ["sbatch", "-J", f"Uin{u_in.replace('.','')}{int(run_num)}", "launch.sh"]
+    else:
+        job_dep_id = job_ids[job_dep_idx]
+        cmd = ["sbatch", "-J", f"Uin{u_in.replace('.','')}{int(run_num)}", "--dependency", f"afterok:{job_dep_id}", "launch.sh"]
+        print(f"[INFO] Job will be chained to job {job_dep_id}")
     work_dir = dst_dir
-    
+
+    # Submit Job to queueing system
     if not test_mode:
         print(f"[INFO] Submitting SLURM job" )
-        subprocess.Popen(cmd, cwd=work_dir)
+        result = subprocess.run(cmd, cwd=work_dir, capture_output=True, text=True)
+        match = re.search(r"Submitted batch job (\d+)", result.stdout)
+        if match:
+            job_id = match.group(1)
+            job_ids[i] = job_id
+            print(f"[INFO] Job {i} submitted with JobID {job_id}")
+            print("----------------------------------------------------------")
+        else:
+            print(f"[WARNING] Could not parse JobID from sbatch output:\n{result.stdout}")
     else:
         print(f"TESTMODE; Command is {cmd}")
+        job_ids[i] = '00000'
     
 
 
