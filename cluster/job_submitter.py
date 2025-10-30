@@ -23,7 +23,7 @@ import subprocess
 
 # Some General Parameters
 test_mode = False
-dt = 1.0e-03
+dt = 2.0e-04
 l_time_lim = 72
 
 
@@ -236,7 +236,7 @@ for i in range(len(df)):
         # TODO rewrite SIZE and recompilation
         # May not be necessary as case maybe already compiled with higher core count
         # If implemented add check to prevent unnecessary recompiles
-        print("[INFO] Using more than 256 cores")
+        print(f"[INFO] Using more than 256 cores (n = {n_cores})")
     if "l" in args:
         with open(f"{dst_dir}/launch.sh", "r") as g:
             new_lines = []

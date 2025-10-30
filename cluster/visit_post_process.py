@@ -5,9 +5,11 @@ import pandas as pd
 import shutil
 import re
 import glob
+import time
 
 # Runtime params
 delete_vid_img = True
+db_temp = "/cluster/scratch/fkaufmann/other/temp"
 
 def parse_case(case_str):
     try:
@@ -25,7 +27,7 @@ parser.add_argument("--path", type=str, required=False,
 parser.add_argument("--case", type=str, required=False,
                     help="case name value to use for all cases (e.g. base_18.4k_phi_0.6)")
 parser.add_argument("--mode", type=str, required=False,
-                    help="Mode to run postprocessing (d dryrun; c contour; i images; h heat release)")
+                    help="Mode to run postprocessing (d dryrun; c contour; i images; h heat release; p post-processing)")
 parser.add_argument('--all', action='store_true', help='Go through all casefiles on the scratch folder')
 parser.add_argument('--new', action='store_true', help='Go through new casefiles on the scratch folder')
 args = parser.parse_args()
@@ -87,7 +89,10 @@ elif args.all or args.new:
     
 else:
     for u_in, run_num in args.runs:
-        db_path = f"/cluster/scratch/fkaufmann/{case_name}/Uin_{u_in}/RUN{run_num}/inward.nek5000"
+        if 'e' in enabled_modes:
+            db_path = f"/cluster/scratch/fkaufmann/{case_name}/Uin_{u_in}/RUN{run_num}/po_inward.nek5000"
+        else:
+            db_path = f"/cluster/scratch/fkaufmann/{case_name}/Uin_{u_in}/RUN{run_num}/inward.nek5000"
         sources.append(db_path)
         #case_params.append([phi, velocity, run_number])
         dest = f"/cluster/home/fkaufmann/inward_prop/post_processed_data/{case_name}/Uin_{u_in}_RUN{run_num}"
@@ -114,7 +119,7 @@ if 'd' in enabled_modes:
     print(f'[INFO] Testing mode, running the following command:')
     cmd = ["visit", "-cli", "-nowin", "-s", "extract_Iso_avgs.py", "--destinations"] + destinations + ["--sources"] + sources
     print(cmd)
-    exit()
+    #exit()
 
 # Output temperature contour properties
 if 'c' in enabled_modes:
@@ -132,7 +137,8 @@ if 'i' in enabled_modes:
     processes = []
     for source, destination, t_offset in zip(sources, destinations, time_offsets):
         print(f"[INFO] Launching extract_Images process...")
-        cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
+        cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--na", "--tfinal", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
+        #cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
         try:
             processes.append(subprocess.Popen(cmd))
         except subprocess.CalledProcessError as e:
@@ -200,9 +206,13 @@ if 'v' in enabled_modes:
 if 'h' in enabled_modes:
     for source, destination, t_offset in zip(sources, destinations, time_offsets):
         source_parent = os.path.dirname(source)
+        print(f"[INFO] Extracting iHRR for {source_parent}")
         hrr_sources  = glob.glob(f"{source_parent}/slurm*")
         if len(hrr_sources) > 1:
             print(f"[WARNING] several slurm.out files found in {source_parent}, picking first one")
+        if hrr_sources == []:
+            print(f"[WARNING] No .out file found, skipping case")
+            continue
         hrr_source = hrr_sources[0]
         hrr_destination = f"{destination}/iHRR.csv"
         data = []
@@ -219,11 +229,72 @@ if 'h' in enabled_modes:
         for line in data[1:]:  # Skip first matching line
             fields = line.strip().split()
             if len(fields) >= 6:
-                timeseries.append([fields[5] + t_offset, fields[4]])  # 6th and 5th fields (reversed)
+                timeseries.append([float(fields[5]) + t_offset, fields[4]])  # 6th and 5th fields (reversed)
 
         # Convert to DataFrame and write to CSV
         print("[INFO] Saving .csv")
         df = pd.DataFrame(timeseries, columns=["time", "ihrr"])  
         df.to_csv(hrr_destination, index=False)
             
+if 'f' in enabled_modes:
+    print(f"[INFO] Launching extract_fields...")
+    temp_destinations = []
+    for u_in, run_num in args.runs:
+        temp_dest = f"{db_temp}/{u_in}_{run_num}"
+        os.makedirs(f"{temp_dest}", exist_ok=True)
+        os.makedirs(f"{temp_dest}/database", exist_ok=True)
+        temp_destinations.append(temp_dest)
+    
+    try:
+        cmd = ["visit", "-cli", "-nowin", "-s", "extract_fields.py", "--destinations"] + temp_destinations + ["--sources"] + sources + ["--fields", "temperature"] 
+        subprocess.run(cmd, check=True)
+        print(f"[INFO] extract_Iso_averages has finished")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Command failed with exit code {e.returncode}:\n{e.stderr}")
+
+    #for temp_dest in temp_destinations:
+        
+if 'p' in enabled_modes:
+    for u_in, run_num in args.runs:
+        run_filepath = f"/cluster/scratch/fkaufmann/{case_name}/Uin_{u_in}/RUN{run_num}"
+        ckp_file_list =  glob.glob(f"{run_filepath}/inward0.f*")
+        ckp_file_list.sort()
+        work_dir = f"/cluster/home/fkaufmann/inward_prop/casefiles/{case_name}_po"
+        file_list_path = f"{work_dir}/file.list"
+        if not ckp_file_list:
+            print(f"[ERROR] no files found to post-process for {u_in}_{run_num}")
+            continue
+        else:
+            with open(file_list_path, 'w') as file:
+                file.write(f"{len(ckp_file_list)}\n")
+                file.writelines(f"{fname}\n" for fname in ckp_file_list)
+        cmd = ["sbatch", "-J", f"PP{u_in.replace('.','')}{int(run_num)}", "launch.sh"]
+        
+    
+        if 'd' in enabled_modes:
+            print(f'[INFO] Testing mode, running the following command:')
+            print(cmd)
+        else:
+            print(f"[INFO] Submitting SLURM job" )
+            subprocess.Popen(cmd, cwd=work_dir)
+        while(True):
+            po_file_list = glob.glob(f"{work_dir}/po_inward0.f[0-9][0-9][0-9][0-9][0-9]")
+            print(f"[INFO] {len(po_file_list)} out of {len(ckp_file_list)} files processed")
+            if len(po_file_list) == len(ckp_file_list):
+                print(f"[INFO] processing finished, moving files...")
+                cmd = ['mv', *po_file_list, f"{run_filepath}/"]
+                subprocess.run(cmd, cwd=work_dir)
+                cmd = ['mv', 'po_inward.nek5000', f"{run_filepath}/"]
+                subprocess.run(cmd, cwd=work_dir)
+                break
+            time.sleep(5)
+
+if 'e' in enabled_modes:
+    print(f"[INFO] Launching extract_Iso_averages...")
+    try:
+        cmd = ["visit", "-cli", "-nowin", "-s", "extract_Iso_avgs.py", "--destinations"] + destinations + ["--sources"] + sources + ["--po"]
+        subprocess.run(cmd, check=True)
+        print(f"[INFO] extract_Iso_averages has finished")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Command failed with exit code {e.returncode}:\n{e.stderr}")
 

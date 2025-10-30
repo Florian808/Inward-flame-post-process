@@ -7,12 +7,14 @@ parser = argparse.ArgumentParser(description="Process sources with destinations"
 parser.add_argument("--sources", type=str, required=True, help="Input database paths")
 parser.add_argument("--destinations", type=str, required=True, help="Output directories")
 parser.add_argument("--toffset", type=float, required=False, help="Correction time offset for cases with wrong internal timestamps", default=0.0)
+parser.add_argument("--na", action='store_true', help="Disable all annotations and just output image at predefined size")
+parser.add_argument("--tfinal", action='store_true', help="Only save image of at t_final")
 args = parser.parse_args()
 
 t_offset = args.toffset
 test_mode = False
 # Start parallel compute engine
-if not test_mode:
+if not any([test_mode, args.tfinal]):
     engine_args = ("-l", "srun", "-np", "4", "-hosts", "localhost")
     OpenComputeEngine("localhost", engine_args)
 SuppressMessages(3)
@@ -24,6 +26,10 @@ res_y = 1080        # Resolution height
 fullscreen = False  # Render image in fullscreen
 Tiso = 5            # Isotherm temp for spatial extend 
 
+if args.na:
+    res_x = 1000
+    res_y = 1000
+    fullscreen = True
 # Process the single pair of source and destination
 dest = args.destinations
 path = args.sources
@@ -32,35 +38,38 @@ path = args.sources
 db_path = path
 OpenDatabase(db_path, 0)
 
+if not args.na:
+    # Plot image of final Isotherm to calculate plotting dimensions
+    # Add temperature contour (single color as opposed to slicing)
+    AddPlot("Contour", "temperature", 0, 0)
+    ResizeWindow(1, res_x, res_y)
+    SetTimeSliderState(TimeSliderGetNStates() - 1)
+    # Set up contour attributes
+    ContourAtts = ContourAttributes()
+    ContourAtts.colorType = ContourAtts.ColorBySingleColor  # ColorBySingleColor, ColorByMultipleColors, ColorByColorTable
+    ContourAtts.legendFlag = 0
+    ContourAtts.wireframe = 0
+    ContourAtts.lineWidth = 3
+    ContourAtts.singleColor = (255, 0, 0, 255)
+    ContourAtts.contourMethod = ContourAtts.Value  # Level, Value, Percent
+    ContourAtts.contourValue = (Tiso)
+    ContourAtts.scaling = ContourAtts.Linear  # Linear, Log
+    SetPlotOptions(ContourAtts)
+    DrawPlots()
 
-# Plot image of final Isotherm
-# Add temperature contour (single color as opposed to slicing)
-AddPlot("Contour", "temperature", 0, 0)
-ResizeWindow(1, res_x, res_y)
-SetTimeSliderState(TimeSliderGetNStates() - 1)
-# Set up contour attributes
-ContourAtts = ContourAttributes()
-ContourAtts.colorType = ContourAtts.ColorBySingleColor  # ColorBySingleColor, ColorByMultipleColors, ColorByColorTable
-ContourAtts.legendFlag = 0
-ContourAtts.wireframe = 0
-ContourAtts.lineWidth = 3
-ContourAtts.singleColor = (255, 0, 0, 255)
-ContourAtts.contourMethod = ContourAtts.Value  # Level, Value, Percent
-ContourAtts.contourValue = (Tiso)
-ContourAtts.scaling = ContourAtts.Linear  # Linear, Log
-SetPlotOptions(ContourAtts)
-DrawPlots()
+    # Set up layout
+    Query("SpatialExtents", use_actual_data=1)
+    max_coord = max([abs(GetQueryOutputValue()[i]) for i in range(4)])
+    l_plot = round((max_coord + 15) / 5) * 5 + 0.001
+    print(l_plot)
+    DeleteAllPlots()
 
-# Set up layout
-Query("SpatialExtents", use_actual_data=1)
-max_coord = max([abs(GetQueryOutputValue()[i]) for i in range(4)])
-l_plot = round((max_coord + 15) / 5) * 5 + 0.001
-print(l_plot)
-DeleteAllPlots()
+else:
+    l_plot = 15
+    ResizeWindow(1, res_x, res_y)
+
 # Add plot for specified scalar
-
 AddPlot("Pseudocolor", scalar, 0, 0)
-
 
 # Define the Attributes for plotting
 PseudocolorAtts = PseudocolorAttributes()
@@ -68,9 +77,10 @@ PseudocolorAtts.scaling = PseudocolorAtts.Linear  # Linear, Log, Skew
 PseudocolorAtts.limitsMode = PseudocolorAtts.OriginalData  # OriginalData, ActualData
 PseudocolorAtts.minFlag = 1
 PseudocolorAtts.min = 0
+PseudocolorAtts.max = 0.007
 PseudocolorAtts.centering = PseudocolorAtts.Natural  # Natural, Nodal, Zonal
-PseudocolorAtts.colorTableName = "Spectral"
-PseudocolorAtts.invertColorTable = 1
+PseudocolorAtts.colorTableName = "viridis"
+PseudocolorAtts.invertColorTable = 0
 PseudocolorAtts.opacityType = PseudocolorAtts.FullyOpaque  # ColorTable, FullyOpaque, Constant, Ramp, VariableRange
 PseudocolorAtts.renderSurfaces = 1
 PseudocolorAtts.renderWireframe = 0
@@ -84,7 +94,50 @@ DrawPlots()
 
 if fullscreen:
     layout = "full"
-    exit()
+    # Set up layout
+    x_lim_cent = 0.5
+    View2DAtts = View2DAttributes()
+    View2DAtts.windowCoords = (-l_plot, l_plot, -l_plot, l_plot)
+    y_lims = [0.0, 1.0]
+    x_lims = [0.0, 1.0]
+    View2DAtts.viewportCoords = (x_lims[0], x_lims[1], y_lims[0], y_lims[1])
+    View2DAtts.fullFrameActivationMode = View2DAtts.Off  # On, Off, Auto
+    View2DAtts.xScale = View2DAtts.LINEAR  # LINEAR, LOG
+    View2DAtts.yScale = View2DAtts.LINEAR  # LINEAR, LOG
+    View2DAtts.windowValid = 0
+    SetView2D(View2DAtts)
+    
+     # Set up annotations
+    AnnotationAtts = AnnotationAttributes()
+    AnnotationAtts.axes2D.visible = 0
+    AnnotationAtts.userInfoFlag = 0
+    AnnotationAtts.databaseInfoFlag = 0
+    AnnotationAtts.legendInfoFlag = 0
+    AnnotationAtts.backgroundColor = (255, 255, 255, 255)
+    AnnotationAtts.foregroundColor = (0, 0, 0, 255)
+    AnnotationAtts.backgroundMode = AnnotationAtts.Solid  # Solid, Gradient, Image, ImageSphere
+    SetAnnotationAttributes(AnnotationAtts)
+
+    # Define window saving attributes
+    SaveWindowAtts = SaveWindowAttributes()
+    SaveWindowAtts.outputToCurrentDirectory = 0
+    SaveWindowAtts.outputDirectory = f"{dest}/images"
+    SaveWindowAtts.fileName = "placeholder"
+    SaveWindowAtts.family = 0
+    SaveWindowAtts.format = SaveWindowAtts.PNG  # BMP, CURVE, JPEG, OBJ, PNG, POSTSCRIPT, POVRAY, PPM, RGB, STL, TIFF, ULTRA, VTK, PLY, EXR
+    SaveWindowAtts.width = res_x
+    SaveWindowAtts.height = res_y
+    SaveWindowAtts.screenCapture = 0
+    SaveWindowAtts.saveTiled = 0
+    #SaveWindowAtts.quality = 80
+    #SaveWindowAtts.progressive = 0
+    SaveWindowAtts.stereo = 0
+    SaveWindowAtts.compression = SaveWindowAtts.NONE  # NONE, PackBits, Jpeg, Deflate, LZW
+    SaveWindowAtts.resConstraint = SaveWindowAtts.ScreenProportions  # NoConstraint, EqualWidthHeight, ScreenProportions
+    SaveWindowAtts.pixelData = 1 # RGB
+    SaveWindowAtts.opts.types = ()
+    SaveWindowAtts.opts.help = ""
+    SetSaveWindowAttributes(SaveWindowAtts)
 else:
     layout = "std"
     # Set up layout
@@ -318,15 +371,21 @@ else:
     f = open(f'{dest}/images_{layout}.csv', 'w', encoding='utf-8')
     f.write('time, image_name\n')
 
-    startSlide = 0
+    # Set time for first frame and define time steps
+    if args.tfinal:
+        startSlide = TimeSliderGetNStates() - 1
+    else:
+        startSlide = 0
     tstep = 1
+
+    # Iterate through the times and save the corresponding image
     for i in range(startSlide, TimeSliderGetNStates(), tstep):
         SetTimeSliderState(i)
 
         # Set time specific parameters
         Query("Time")
         time = GetQueryOutputValue() + t_offset
-        Plot_time.text = f"time = {time:.2f}"
+        if not fullscreen: Plot_time.text = f"time = {time:.2f}"
 
         # Writing image and tracking file entry
         filename = f"OH_Pcol_{layout}_{i:04d}"
