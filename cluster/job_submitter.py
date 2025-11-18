@@ -2,7 +2,7 @@
 Script to automatically create working directories, copy relevant casefiles and modify the .par file, using a .csv list of jobs
 Finally it will submit a batch job to the Euler cluster.
 
-ATTENTION: This script assumes that NO JOBS ARE RUNNING on the cluster. Problems occur if jobs require checkpoints from currently running jobs.
+ATTENTION: This script assumes that NO JOBS ARE RUNNING on the cluster. Problems will occur if jobs require checkpoints that have not been completed yet.
 
 Inputs:
     -- path: mandatory path to the .csv file specifying jobs
@@ -26,7 +26,7 @@ import subprocess
 
 # Some General Parameters
 test_mode = False
-dt = 2.0e-04
+dt = 5.0e-04
 l_time_lim = 72
 
 # Files source and destination settings
@@ -181,7 +181,7 @@ for i in range(len(df)):
             if match:
                 dt_file = match.group(1)
                 if float(dt_file) != dt:
-                    print("[WARNING] dt in .par does not match defined dt")
+                    print("[WARNING] different dt defined in .par file. Final and restart times will be wrong")
 
         # Update write interval
         if "writeInterval" in line:
