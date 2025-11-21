@@ -8,9 +8,16 @@ import glob
 import time
 
 # Runtime params
-delete_vid_img = True
-db_temp = "/cluster/scratch/fkaufmann/other/temp"
-
+delete_vid_img = False
+euler = False
+if euler == True:
+    base_temp = "/cluster/scratch/fkaufmann/other/temp"
+    base_source = f"/cluster/scratch/fkaufmann"
+    base_destination = f"/cluster/home/fkaufmann/inward_prop/post_processed_data"
+else:
+    base_temp = "home/florian/temp"
+    base_source = f"/mnt/e/Master Thesis full simulations"
+    base_destination = f"/home/florian/post_processed_data"
 def parse_case(case_str):
     try:
         velocity, run = case_str.split("_")
@@ -49,9 +56,9 @@ time_offsets = []
 # Parse case sources and destinations from arguments 
 # Create necessary folder structer in the destiniation for the results
 if args.path:
-    sources.append(f"/cluster/scratch/fkaufmann/{args.path}")
+    sources.append(f"{base_source}/{args.path}")
     #case_params.append([0, 0, 0])
-    dest = f"/cluster/home/fkaufmann/inward_prop/post_processed_data/{args.path}"
+    dest = f"{base_destination}/{args.path}"
     destinations.append(dest)
     os.makedirs(dest, exist_ok=True)
     os.makedirs(f"{dest}/database", exist_ok=True)
@@ -63,8 +70,8 @@ elif args.all or args.new:
     run_pattern  = re.compile(r'^RUN[0-9]+$')
     
     # Go through all case directories, then velocity directories, then runs directories
-    for case_dir in os.listdir("/cluster/scratch/fkaufmann/"):
-        case_full_dir = f"/cluster/scratch/fkaufmann/{case_dir}"
+    for case_dir in os.listdir(base_source):
+        case_full_dir = f"{base_source}/{case_dir}"
         if os.path.isdir(case_full_dir) and case_pattern.match(case_dir):
             for vel_dir in os.listdir(case_full_dir):
                 vel_full_dir = f"{case_full_dir}/{vel_dir}"
@@ -75,7 +82,7 @@ elif args.all or args.new:
                             if not args.new:
                                 db_path = f"{run_full_dir}/inward.nek5000"
                                 sources.append(db_path)
-                                dest =  f"/cluster/home/fkaufmann/inward_prop/post_processed_data/{case_dir}/{vel_dir}_{run_dir}"
+                                dest =  f"{base_destination}/{case_dir}/{vel_dir}_{run_dir}"
                                 destinations.append(dest)
                                 os.makedirs(dest, exist_ok=True)
                                 os.makedirs(f"{dest}/database", exist_ok=True)
@@ -90,18 +97,18 @@ elif args.all or args.new:
 else:
     for u_in, run_num in args.runs:
         if 'e' in enabled_modes:
-            db_path = f"/cluster/scratch/fkaufmann/{case_name}/Uin_{u_in}/RUN{run_num}/po_inward.nek5000"
+            db_path = f"{base_source}/{case_name}/Uin_{u_in}/RUN{run_num}/po_inward.nek5000"
         else:
-            db_path = f"/cluster/scratch/fkaufmann/{case_name}/Uin_{u_in}/RUN{run_num}/inward.nek5000"
+            db_path = f"{base_source}/{case_name}/Uin_{u_in}/RUN{run_num}/inward.nek5000"
         sources.append(db_path)
         #case_params.append([phi, velocity, run_number])
-        dest = f"/cluster/home/fkaufmann/inward_prop/post_processed_data/{case_name}/Uin_{u_in}_RUN{run_num}"
+        dest = f"{base_destination}/{case_name}/Uin_{u_in}_RUN{run_num}"
         destinations.append(dest)
         os.makedirs(dest, exist_ok=True)
         os.makedirs(f"{dest}/database", exist_ok=True)
         os.makedirs(f"{dest}/images", exist_ok=True)
         os.makedirs(f"{dest}/images_CON", exist_ok=True)
-        vid_path = f"/cluster/home/fkaufmann/inward_prop/post_processed_data/{case_name}/videos"
+        vid_path = f"{base_destination}/{case_name}/videos"
         if os.path.exists(f"{vid_path}/temp"):
             shutil.rmtree(f"{vid_path}/temp")
         os.makedirs(f"{vid_path}/temp", exist_ok=True)
@@ -125,7 +132,10 @@ if 'd' in enabled_modes:
 if 'c' in enabled_modes:
     print(f"[INFO] Launching extract_Iso_averages...")
     try:
-        cmd = ["visit", "-cli", "-nowin", "-s", "extract_Iso_avgs.py", "--destinations"] + destinations + ["--sources"] + sources 
+        cmd = ["visit", "-cli", "-nowin", "-s", "extract_Iso_avgs.py", "--destinations"] + destinations + ["--sources"] + sources
+        if not euler:
+            cmd += ["--local"]
+        
         subprocess.run(cmd, check=True)
         print(f"[INFO] extract_Iso_averages has finished")
     except subprocess.CalledProcessError as e:
@@ -137,8 +147,10 @@ if 'i' in enabled_modes:
     processes = []
     for source, destination, t_offset in zip(sources, destinations, time_offsets):
         print(f"[INFO] Launching extract_Images process...")
-        cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--na", "--tfinal", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
-        #cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
+        #cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--na", "--tfinal", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
+        cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
+        if not euler:
+            cmd += ["--local"]
         try:
             processes.append(subprocess.Popen(cmd))
         except subprocess.CalledProcessError as e:
@@ -150,6 +162,22 @@ if 'i' in enabled_modes:
 
 # Create consecutive video of cases
 if 'v' in enabled_modes:
+    # print(f"[INFO] Extracting Images")
+    # processes = []
+    # for source, destination, t_offset in zip(sources, destinations, time_offsets):
+    #     print(f"[INFO] Launching extract_Images process...")
+    #     cmd = ["visit", "-cli", "-nowin", "-s", "extract_Images.py", "--destinations"] + [destination] + ["--sources"] + [source] + ["--toffset"] + [str(t_offset)]
+    #     if not euler:
+    #         cmd += ["--local"]
+
+    #     try:
+    #         processes.append(subprocess.Popen(cmd))
+    #     except subprocess.CalledProcessError as e:
+    #         print(f"[ERROR] Command failed with exit code {e.returncode}:\n{e.stderr}")
+
+    # for p in processes:
+    #     p.wait()
+    print("[INFO] All extract_Images processes finished")
     # Go through cases and compare timesteps (they can vary by an integer factor)
     dt_list = []
     dt_max = 0
@@ -189,7 +217,9 @@ if 'v' in enabled_modes:
     "-framerate", str(frame_rate),
     "-i", str(vid_path) + "/temp/frame%05d.png", 
     "-c:v", "libx264",
-    "-pix_fmt", "yuv420p",
+    "-pix_fmt", "yuv444p",
+    "-crf", "17",          # high quality
+    "-preset", "slow",  
     video_path
     ]
     # print(ffmpeg_cmd)
@@ -240,7 +270,7 @@ if 'f' in enabled_modes:
     print(f"[INFO] Launching extract_fields...")
     temp_destinations = []
     for u_in, run_num in args.runs:
-        temp_dest = f"{db_temp}/{u_in}_{run_num}"
+        temp_dest = f"{base_temp}/{u_in}_{run_num}"
         os.makedirs(f"{temp_dest}", exist_ok=True)
         os.makedirs(f"{temp_dest}/database", exist_ok=True)
         temp_destinations.append(temp_dest)

@@ -7,14 +7,15 @@ parser = argparse.ArgumentParser(description="Process sources with destinations"
 parser.add_argument("--sources", type=str, required=True, help="Input database paths")
 parser.add_argument("--destinations", type=str, required=True, help="Output directories")
 parser.add_argument("--toffset", type=float, required=False, help="Correction time offset for cases with wrong internal timestamps", default=0.0)
-parser.add_argument("--na", action='store_true', help="Disable all annotations and just output image at predefined size")
-parser.add_argument("--tfinal", action='store_true', help="Only save image of at t_final")
+parser.add_argument("--cinematic", action='store_true', help="Disable all annotations and output a high-res cinematic video")
+parser.add_argument("--tfinal", action='store_true', help="Only save image at t_final without any annotation")
+parser.add_argument("--local", action='store_true', help="Disable slurm commands to run script locally")
 args = parser.parse_args()
 
 t_offset = args.toffset
 test_mode = False
 # Start parallel compute engine
-if not any([test_mode, args.tfinal]):
+if not any([test_mode, args.tfinal, args.local]):
     engine_args = ("-l", "srun", "-np", "4", "-hosts", "localhost")
     OpenComputeEngine("localhost", engine_args)
 SuppressMessages(3)
@@ -26,7 +27,12 @@ res_y = 1080        # Resolution height
 fullscreen = False  # Render image in fullscreen
 Tiso = 5            # Isotherm temp for spatial extend 
 
-if args.na:
+if args.cinematic:
+    res_x = 1920
+    res_y = 1080
+    fullscreen = True
+
+elif args.tfinal:
     res_x = 1000
     res_y = 1000
     fullscreen = True
@@ -38,7 +44,10 @@ path = args.sources
 db_path = path
 OpenDatabase(db_path, 0)
 
-if not args.na:
+if args.tfinal:
+    l_plot = 15
+    ResizeWindow(1, res_x, res_y)
+else:
     # Plot image of final Isotherm to calculate plotting dimensions
     # Add temperature contour (single color as opposed to slicing)
     AddPlot("Contour", "temperature", 0, 0)
@@ -64,9 +73,6 @@ if not args.na:
     print(l_plot)
     DeleteAllPlots()
 
-else:
-    l_plot = 15
-    ResizeWindow(1, res_x, res_y)
 
 # Add plot for specified scalar
 AddPlot("Pseudocolor", scalar, 0, 0)
@@ -76,11 +82,14 @@ PseudocolorAtts = PseudocolorAttributes()
 PseudocolorAtts.scaling = PseudocolorAtts.Linear  # Linear, Log, Skew
 PseudocolorAtts.limitsMode = PseudocolorAtts.OriginalData  # OriginalData, ActualData
 PseudocolorAtts.minFlag = 1
+PseudocolorAtts.maxFlag = 1
 PseudocolorAtts.min = 0
 PseudocolorAtts.max = 0.007
 PseudocolorAtts.centering = PseudocolorAtts.Natural  # Natural, Nodal, Zonal
-PseudocolorAtts.colorTableName = "viridis"
-PseudocolorAtts.invertColorTable = 0
+# PseudocolorAtts.colorTableName = "viridis"
+# PseudocolorAtts.invertColorTable = 0
+PseudocolorAtts.colorTableName = "Spectral"
+PseudocolorAtts.invertColorTable = 1
 PseudocolorAtts.opacityType = PseudocolorAtts.FullyOpaque  # ColorTable, FullyOpaque, Constant, Ramp, VariableRange
 PseudocolorAtts.renderSurfaces = 1
 PseudocolorAtts.renderWireframe = 0
